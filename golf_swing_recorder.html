@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Lucas Koh Golf — Swing Recorder</title>
+  <style>
+:root{
+  --bg:#05060a; --accent:#fff; --muted:#9aa4ad; --primary:#2f80ed; --red:#ff3b30; --glass:rgba(255,255,255,0.04);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--accent);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial}
+#app{height:100vh;display:flex;flex-direction:column}
+.topbar{height:64px;display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:linear-gradient(180deg, rgba(0,0,0,0.28), transparent);z-index:20}
+.icon-btn{width:44px;height:44px;border-radius:10px;border:none;background:var(--glass);color:var(--accent);font-size:20px;cursor:pointer}
+.icon-btn:active{transform:scale(0.95)}
+.title{text-align:center}
+.app-name{font-weight:700;font-size:15px}
+.subtitle{font-size:11px;color:var(--muted)}
+
+.camera-area{flex:1;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+video#preview{width:100%;height:100%;object-fit:cover;background:#000;}
+
+.controls{position:absolute;left:0;right:0;bottom:28px;display:flex;justify-content:center;pointer-events:none}
+.record-wrap{pointer-events:auto;display:flex;flex-direction:column;align-items:center}
+.record{width:96px;height:96px;border-radius:50%;border:6px solid rgba(255,255,255,0.10);background:transparent;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 30px rgba(0,0,0,0.6);transition:transform .12s;cursor:pointer}
+.record:active{transform:scale(0.95)}
+.record .inner{width:70px;height:70px;border-radius:50%;background:var(--red);display:inline-block;transition:all .2s}
+.record.recording .inner{border-radius:12px;width:60px;height:60px;background:var(--red);box-shadow:0 0 0 12px rgba(255,59,48,0.08)}
+.timer{margin-top:10px;background:rgba(0,0,0,0.65);padding:8px 16px;border-radius:8px;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);font-size:16px;letter-spacing:1px}
+
+.playback{position:fixed;inset:6% 4%;background:linear-gradient(180deg, rgba(3,7,18,0.98), rgba(3,7,18,0.99));border-radius:14px;padding:12px;z-index:50;display:flex;flex-direction:column;gap:8px;box-shadow:0 20px 60px rgba(0,0,0,0.7)}
+.playback-header{display:flex;justify-content:space-between;align-items:center}
+.playback-title{font-weight:700}
+.playback-actions{display:flex;gap:8px}
+.btn{background:transparent;border:0;color:var(--accent);padding:8px 12px;border-radius:10px;font-weight:600;cursor:pointer}
+.btn:active{transform:scale(0.95)}
+.btn.ghost{background:var(--glass)}
+.btn.primary{background:var(--primary);color:#fff}
+.btn.speed{background:var(--glass);min-width:70px}
+.btn.speed.active{background:var(--primary);color:#fff}
+.playback-body{position:relative}
+.playback video{width:100%;height:62vh;background:#000;border-radius:8px;object-fit:contain}
+.speed-overlay{position:absolute;left:12px;top:12px;background:rgba(0,0,0,0.75);padding:8px 14px;border-radius:8px;font-weight:700;font-size:16px}
+.hidden{display:none !important}
+.playback-controls{display:flex;gap:8px;justify-content:center}
+.note{font-size:12px;color:var(--muted);text-align:center;margin-top:6px}
+
+.message{position:fixed;left:50%;transform:translateX(-50%);bottom:120px;background:rgba(0,0,0,0.8);padding:10px 16px;border-radius:10px;color:var(--accent);z-index:60;font-size:14px}
+
+.fps-select{background:var(--glass);border-radius:8px;padding:8px 12px;color:var(--accent);border:0;font-size:14px;font-weight:600;cursor:pointer}
+.fps-select option:disabled{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div id="app" class="onform-like">
+    <header class="topbar">
+      <button id="galleryBtn" class="icon-btn" title="사진첩에서 불러오기" aria-label="gallery">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M21 19V5a2 2 0 0 0-2-2H5C3.895 3 3 3.895 3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="title">
+        <div class="app-name">Lucas Koh Golf</div>
+        <div class="subtitle">Swing Recorder</div>
+      </div>
+      <div class="right-controls">
+        <label class="fps-wrap" title="FPS 선택">
+          <select id="fpsSelect" class="fps-select" aria-label="FPS">
+            <option value="30">30fps</option>
+            <option value="240">240fps</option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    <main class="camera-area">
+      <video id="preview" playsinline autoplay muted></video>
+
+      <div class="controls">
+        <div class="record-wrap">
+          <button id="recordBtn" class="record" aria-pressed="false" title="녹화">
+            <span class="ring"></span>
+            <span class="inner"></span>
+          </button>
+          <div id="timer" class="timer">00:00.00</div>
+        </div>
+      </div>
+    </main>
+
+    <section id="playbackArea" class="playback hidden" aria-hidden="true">
+      <div class="playback-header">
+        <div class="playback-title">Playback</div>
+        <div class="playback-actions">
+          <button id="saveBtn" class="btn primary">저장</button>
+          <button id="closePlayback" class="btn ghost">닫기</button>
+        </div>
+      </div>
+      <div class="playback-body">
+        <video id="playback" playsinline controls></video>
+        <div id="speedOverlay" class="speed-overlay">30fps</div>
+      </div>
+      <div class="playback-controls">
+        <button id="speed30" class="btn speed active" data-speed="30">30fps</button>
+        <button id="speed240" class="btn speed" data-speed="240">240fps</button>
+      </div>
+      <p class="note">iPhone: 저장 → 공유시트에서 '비디오 저장' 선택</p>
+    </section>
+
+    <input id="fileInput" type="file" accept="video/*" style="display:none">
+
+    <div id="message" class="message hidden" role="status"></div>
+  </div>
+
+<script>
+/* Golf Swing Recorder - Professional Version
+ * Fixed: Recording button, 240fps detection, playback speeds (30fps/240fps), beep sound, timer
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  const preview = document.getElementById('preview');
+  const recordBtn = document.getElementById('recordBtn');
+  const fpsSelect = document.getElementById('fpsSelect');
+  const fileInput = document.getElementById('fileInput');
+  const galleryBtn = document.getElementById('galleryBtn');
+  const playbackArea = document.getElementById('playbackArea');
+  const playback = document.getElementById('playback');
+  const saveBtn = document.getElementById('saveBtn');
+  const closePlayback = document.getElementById('closePlayback');
+  const speed30 = document.getElementById('speed30');
+  const speed240 = document.getElementById('speed240');
+  const speedOverlay = document.getElementById('speedOverlay');
+  const message = document.getElementById('message');
+  const timerLabel = document.getElementById('timer');
+
+  let mediaStream = null;
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let isRecording = false;
+  let timerInterval = null;
+  let timerT0 = 0;
+  let lastBlob = null;
+  let audioContext = null;
+
+  const supportsGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const supportsMediaRecorder = typeof MediaRecorder !== 'undefined';
+
+  function showMessage(txt, ms=2000) {
+    message.textContent = txt;
+    message.classList.remove('hidden');
+    if (message._timeout) clearTimeout(message._timeout);
+    message._timeout = setTimeout(() => message.classList.add('hidden'), ms);
+  }
+
+  function chooseMimeType() {
+    if (!supportsMediaRecorder) return '';
+    const candidates = [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4'
+    ];
+    for (const type of candidates) {
+      try {
+        if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) {
+          return type;
+        }
+      } catch (e) {
+        console.warn('MIME type check failed:', type);
+      }
+    }
+    return '';
+  }
+
+  // Enhanced beep function with better browser compatibility
+  function playBeep() {
+    try {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 880; // A5 note
+      oscillator.type = 'sine';
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.15);
+      
+      console.log('Beep played successfully');
+    } catch (e) {
+      console.warn('Beep failed:', e);
+    }
+  }
+
+  async function startPreview() {
+    if (!supportsGetUserMedia) {
+      showMessage('카메라를 지원하지 않는 브라우저입니다.', 5000);
+      return false;
+    }
+
+    const selectedFps = Number(fpsSelect.value) || 30;
+    
+    const constraints = {
+      audio: true,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: selectedFps }
+      }
+    };
+
+    try {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+      }
+
+      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      preview.srcObject = mediaStream;
+      await preview.play();
+
+      // Get actual frame rate
+      const videoTrack = mediaStream.getVideoTracks()[0];
+      const settings = videoTrack.getSettings();
+      const actualFps = settings.frameRate || selectedFps;
+      
+      console.log('Camera started - Requested:', selectedFps, 'Actual:', actualFps);
+      showMessage(`카메라 준비 완료 (${Math.round(actualFps)}fps)`, 1500);
+      
+      return true;
+    } catch (err) {
+      console.error('getUserMedia error:', err);
+      showMessage('카메라 접근 실패: ' + (err.message || '알 수 없는 오류'), 4000);
+      return false;
+    }
+  }
+
+  function stopPreview() {
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(t => t.stop());
+      mediaStream = null;
+      preview.srcObject = null;
+    }
+  }
+
+  function startTimer() {
+    timerT0 = performance.now();
+    timerLabel.textContent = '00:00.00';
+    
+    timerInterval = setInterval(() => {
+      const elapsed = performance.now() - timerT0;
+      const minutes = Math.floor(elapsed / 60000);
+      const seconds = Math.floor((elapsed % 60000) / 1000);
+      const centiseconds = Math.floor((elapsed % 1000) / 10);
+      
+      const mm = String(minutes).padStart(2, '0');
+      const ss = String(seconds).padStart(2, '0');
+      const cc = String(centiseconds).padStart(2, '0');
+      
+      timerLabel.textContent = `${mm}:${ss}.${cc}`;
+    }, 50);
+  }
+
+  function stopTimer() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+  }
+
+  async function startRecording() {
+    if (!supportsMediaRecorder) {
+      showMessage('녹화를 지원하지 않는 브라우저입니다.', 4000);
+      return;
+    }
+
+    if (isRecording) {
+      console.warn('Already recording');
+      return;
+    }
+
+    // Ensure camera is ready
+    if (!mediaStream || !mediaStream.active) {
+      const started = await startPreview();
+      if (!started) return;
+    }
+
+    recordedChunks = [];
+    const mimeType = chooseMimeType();
+    
+    try {
+      const options = mimeType ? { mimeType } : {};
+      mediaRecorder = new MediaRecorder(mediaStream, options);
+      
+      console.log('MediaRecorder created with MIME type:', mediaRecorder.mimeType);
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+          console.log('Data chunk received:', event.data.size, 'bytes');
+        }
+      };
+
+      mediaRecorder.onstop = handleRecordingStop;
+      
+      mediaRecorder.onerror = (event) => {
+        console.error('MediaRecorder error:', event);
+        showMessage('녹화 중 오류가 발생했습니다', 3000);
+        stopRecording();
+      };
+
+      // Play beep BEFORE starting recording
+      playBeep();
+      
+      // Small delay to ensure beep plays
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      mediaRecorder.start(100); // Collect data every 100ms
+      isRecording = true;
+      
+      recordBtn.classList.add('recording');
+      recordBtn.setAttribute('aria-pressed', 'true');
+      
+      startTimer();
+      showMessage('🔴 녹화 시작', 1000);
+      
+      console.log('Recording started successfully');
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+      showMessage('녹화를 시작할 수 없습니다: ' + err.message, 3000);
+      isRecording = false;
+    }
+  }
+
+  function stopRecording() {
+    if (!isRecording || !mediaRecorder) {
+      console.warn('Not recording');
+      return;
+    }
+
+    try {
+      if (mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      
+      isRecording = false;
+      recordBtn.classList.remove('recording');
+      recordBtn.setAttribute('aria-pressed', 'false');
+      stopTimer();
+      
+      showMessage('녹화 중지', 1000);
+      console.log('Recording stopped');
+    } catch (err) {
+      console.error('Error stopping recording:', err);
+    }
+  }
+
+  function handleRecordingStop() {
+    console.log('Recording stop handler called, chunks:', recordedChunks.length);
+    
+    if (recordedChunks.length === 0) {
+      showMessage('녹화된 데이터가 없습니다', 2000);
+      return;
+    }
+
+    try {
+      const mimeType = recordedChunks[0].type || 'video/webm';
+      const blob = new Blob(recordedChunks, { type: mimeType });
+      
+      console.log('Created blob:', blob.size, 'bytes, type:', blob.type);
+      
+      if (blob.size < 1000) {
+        showMessage('녹화된 데이터가 너무 작습니다. 다시 시도해주세요.', 3000);
+        return;
+      }
+      
+      lastBlob = blob;
+      const url = URL.createObjectURL(blob);
+      openPlayback(url, blob);
+    } catch (err) {
+      console.error('Error handling recording stop:', err);
+      showMessage('녹화 파일 처리 중 오류가 발생했습니다', 3000);
+    }
+  }
+
+  function openPlayback(url, blob) {
+    playbackArea.classList.remove('hidden');
+    playbackArea.setAttribute('aria-hidden', 'false');
+    
+    playback.src = url;
+    playback.playbackRate = 1.0; // Start at normal speed
+    
+    lastBlob = blob;
+    saveBtn.onclick = () => saveVideo(blob);
+    
+    // Set initial speed to 30fps (normal speed)
+    setPlaybackSpeed(30);
+    
+    // Try to enter fullscreen
+    setTimeout(() => {
+      playback.play().catch(e => console.warn('Autoplay failed:', e));
+      try {
+        if (playback.requestFullscreen) {
+          playback.requestFullscreen().catch(e => console.log('Fullscreen denied'));
+        } else if (playback.webkitEnterFullscreen) {
+          playback.webkitEnterFullscreen();
+        }
+      } catch (e) {
+        console.log('Fullscreen not supported');
+      }
+    }, 100);
+  }
+
+  function setPlaybackSpeed(fps) {
+    if (!playback.src) return;
+    
+    // 30fps = normal speed (1.0x)
+    // 240fps = slow motion (0.125x which is 1/8 speed)
+    const rate = fps === 30 ? 1.0 : 0.125;
+    playback.playbackRate = rate;
+    
+    speedOverlay.textContent = fps === 30 ? '30fps (1x)' : '240fps (1/8x)';
+    speedOverlay.classList.remove('hidden');
+    
+    // Update button states
+    speed30.classList.toggle('active', fps === 30);
+    speed240.classList.toggle('active', fps === 240);
+    
+    console.log('Playback speed set to:', rate, 'for', fps, 'fps');
+  }
+
+  async function saveVideo(blob) {
+    if (!blob) {
+      showMessage('저장할 파일이 없습니다', 2000);
+      return;
+    }
+
+    const fileName = `swing_${Date.now()}.${blob.type.includes('mp4') ? 'mp4' : 'webm'}`;
+
+    try {
+      // Try Web Share API first (works best on iOS)
+      if (navigator.share && navigator.canShare) {
+        const file = new File([blob], fileName, { type: blob.type });
+        
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: '골프 스윙 영상'
+          });
+          showMessage('공유 완료! 사진 앱에 저장하세요.', 2500);
+          return;
+        }
+      }
+    } catch (err) {
+      console.log('Share API failed or cancelled:', err);
+    }
+
+    // Fallback to download
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showMessage('다운로드 시작. 파일을 길게 눌러 사진 앱에 저장하세요.', 4000);
+  }
+
+  // Event Listeners
+  recordBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    
+    if (isRecording) {
+      stopRecording();
+    } else {
+      await startRecording();
+    }
+  });
+
+  closePlayback.addEventListener('click', () => {
+    // Exit fullscreen
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      if (document.webkitFullscreenElement) document.webkitExitFullscreen();
+    } catch (e) {}
+    
+    playback.pause();
+    playback.src = '';
+    playbackArea.classList.add('hidden');
+    playbackArea.setAttribute('aria-hidden', 'true');
+    speedOverlay.classList.add('hidden');
+  });
+
+  speed30.addEventListener('click', () => setPlaybackSpeed(30));
+  speed240.addEventListener('click', () => setPlaybackSpeed(240));
+
+  galleryBtn.addEventListener('click', () => {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) {
+      showMessage('파일 선택 취소', 1200);
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    openPlayback(url, file);
+    
+    saveBtn.onclick = () => saveVideo(file);
+    
+    showMessage('갤러리에서 불러옴', 1200);
+    
+    // Reset file input
+    fileInput.value = '';
+  });
+
+  fpsSelect.addEventListener('change', async () => {
+    if (isRecording) {
+      showMessage('녹화 중에는 FPS를 변경할 수 없습니다', 2000);
+      return;
+    }
+    
+    await startPreview();
+  });
+
+  // Check 240fps support
+  async function check240fpsSupport() {
+    try {
+      const testStream = await navigator.mediaDevices.getUserMedia({
+        video: { frameRate: { ideal: 240 } }
+      });
+      
+      const videoTrack = testStream.getVideoTracks()[0];
+      const capabilities = videoTrack.getCapabilities ? videoTrack.getCapabilities() : null;
+      const settings = videoTrack.getSettings();
+      
+      testStream.getTracks().forEach(t => t.stop());
+      
+      const maxFps = capabilities?.frameRate?.max || settings.frameRate || 30;
+      console.log('Max supported FPS:', maxFps);
+      
+      if (maxFps < 120) {
+        const option240 = fpsSelect.querySelector('option[value="240"]');
+        if (option240) {
+          option240.disabled = true;
+          option240.textContent = '240fps (미지원)';
+        }
+        return false;
+      }
+      
+      return true;
+    } catch (err) {
+      console.warn('240fps check failed:', err);
+      return false;
+    }
+  }
+
+  // Initialize
+  (async function init() {
+    console.log('Initializing Golf Swing Recorder...');
+    
+    if (!supportsGetUserMedia) {
+      showMessage('이 브라우저는 카메라를 지원하지 않습니다', 6000);
+      recordBtn.disabled = true;
+      return;
+    }
+
+    if (!supportsMediaRecorder) {
+      showMessage('이 브라우저는 녹화를 지원하지 않습니다', 6000);
+      recordBtn.disabled = true;
+      return;
+    }
+
+    // Start preview with default settings
+    await startPreview();
+    
+    // Check 240fps support
+    await check240fpsSupport();
+    
+    console.log('Initialization complete');
+  })();
+});
+</script>
+</body>
+</html>
